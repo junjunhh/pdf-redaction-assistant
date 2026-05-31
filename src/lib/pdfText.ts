@@ -8,7 +8,40 @@ export type PdfTextItem = {
   transform: number[];
   width: number;
   height: number;
+  fontName?: string;
 };
+
+type TextStyle = {
+  fontFamily?: string;
+};
+
+let textMeasureCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+
+function getTextMeasureContext() {
+  if (typeof document === 'undefined' && typeof OffscreenCanvas === 'undefined') {
+    return null;
+  }
+
+  if (!textMeasureCanvas) {
+    textMeasureCanvas =
+      typeof OffscreenCanvas === 'undefined'
+        ? document.createElement('canvas')
+        : new OffscreenCanvas(1, 1);
+  }
+
+  return textMeasureCanvas.getContext('2d');
+}
+
+function measureTextWidth(text: string, fontSize: number, fontFamily?: string) {
+  const context = getTextMeasureContext();
+
+  if (!context) {
+    return text.length;
+  }
+
+  context.font = `${Math.max(fontSize, 1)}px ${fontFamily ?? 'sans-serif'}`;
+  return context.measureText(text).width;
+}
 
 type ViewportLike = {
   scale: number;
@@ -93,6 +126,7 @@ export function findTextMatchBounds(
   textItems: PdfTextItem[],
   match: TextMatch,
   viewport: ViewportLike,
+  styles: Record<string, TextStyle> = {},
 ): { bbox: TextBounds | null; pdfBoxes: TextBounds[] } {
   let cursor = 0;
   const boxes: TextBounds[] = [];
@@ -115,16 +149,42 @@ export function findTextMatchBounds(
     const itemBbox = getTextItemBbox(item, viewport);
     const localStart = Math.max(0, Math.min(itemText.length, match.start - itemStart));
     const localEnd = Math.max(0, Math.min(itemText.length, match.end - itemStart));
-    const characterWidth = itemBbox.width / Math.max(itemText.length, 1);
 
     if (localEnd <= localStart) {
       continue;
     }
 
+    const style = item.fontName ? styles[item.fontName] : undefined;
+    const textBefore = itemText.slice(0, localStart);
+    const matchText = itemText.slice(localStart, localEnd);
+    const measuredItemWidth = measureTextWidth(
+      itemText,
+      itemBbox.height,
+      style?.fontFamily,
+    );
+    const measuredBeforeWidth = measureTextWidth(
+      textBefore,
+      itemBbox.height,
+      style?.fontFamily,
+    );
+    const measuredMatchWidth = measureTextWidth(
+      matchText,
+      itemBbox.height,
+      style?.fontFamily,
+    );
+    const beforeRatio =
+      measuredItemWidth > 0
+        ? measuredBeforeWidth / measuredItemWidth
+        : localStart / Math.max(itemText.length, 1);
+    const matchRatio =
+      measuredItemWidth > 0
+        ? measuredMatchWidth / measuredItemWidth
+        : (localEnd - localStart) / Math.max(itemText.length, 1);
+
     boxes.push({
-      x: itemBbox.x + localStart * characterWidth,
+      x: itemBbox.x + beforeRatio * itemBbox.width,
       y: itemBbox.y,
-      width: Math.max((localEnd - localStart) * characterWidth, 8),
+      width: Math.max(matchRatio * itemBbox.width, 8),
       height: itemBbox.height,
     });
   }
@@ -145,8 +205,9 @@ export function findTextMatchBbox(
   textItems: PdfTextItem[],
   match: TextMatch,
   viewport: ViewportLike,
+  styles: Record<string, TextStyle> = {},
 ) {
-  return findTextMatchBounds(textItems, match, viewport).bbox;
+  return findTextMatchBounds(textItems, match, viewport, styles).bbox;
 }
 
 export async function extractPageTextData(
@@ -169,5 +230,5 @@ export async function extractPageTextData(
     .filter(Boolean)
     .join(' ');
 
-  return { text, textItems, viewport };
+  return { text, textItems, viewport, styles: textContent.styles };
 }

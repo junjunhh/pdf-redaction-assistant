@@ -1136,12 +1136,26 @@ function getFallbackHighlightBox(source: TextHighlightSource, scale: number) {
     return null;
   }
 
+  // Mirror the 1px symmetric vertical padding the Chrome (range-rect) path adds,
+  // so the stored-bbox path used by Safari lines up the same way over the text.
+  const verticalPadding = 1;
+
   return {
     x: source.bbox.x * scale,
-    y: source.bbox.y * scale,
+    y: source.bbox.y * scale - verticalPadding,
     width: source.bbox.width * scale,
-    height: Math.max(source.bbox.height * scale, 10),
+    height: Math.max(source.bbox.height * scale, 10) + verticalPadding * 2,
   };
+}
+
+function shouldUseStoredHighlightBox() {
+  // Safari reports Range#getClientRects() for transformed pdf.js text-layer
+  // spans differently from Chrome. The stored PDF-derived bbox is tied to the
+  // canvas coordinate system, so it stays aligned in Safari.
+  return (
+    /^((?!chrome|android).)*safari/i.test(navigator.userAgent) ||
+    navigator.vendor === 'Apple Computer, Inc.'
+  );
 }
 
 function measureTextHighlight(
@@ -1150,6 +1164,10 @@ function measureTextHighlight(
   textLayerNode: HTMLElement | null,
   scale: number,
 ): HighlightBox | null {
+  if (shouldUseStoredHighlightBox()) {
+    return getFallbackHighlightBox(source, scale);
+  }
+
   if (
     !frameNode ||
     !textLayerNode ||

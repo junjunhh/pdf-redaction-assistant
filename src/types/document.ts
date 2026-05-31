@@ -19,6 +19,12 @@ export type HistoryAction =
       wasBlackedOut: boolean;
     }
   | {
+      kind: 'entity-blackout';
+      entityId: string;
+      previousBlackedOut: boolean;
+      nextBlackedOut: boolean;
+    }
+  | {
       kind: 'manual-redaction-create';
       redaction: ManualRedaction;
       index: number;
@@ -33,6 +39,12 @@ export type HistoryAction =
       wasActive: boolean;
       wasSelected: boolean;
       wasBlackedOut: boolean;
+    }
+  | {
+      kind: 'manual-redaction-blackout';
+      redactionId: string;
+      previousBlackedOut: boolean;
+      nextBlackedOut: boolean;
     }
   | {
       kind: 'manual-redaction-category-change';

@@ -42,7 +42,7 @@ export async function searchPdfText(
   const matches: SearchMatch[] = [];
 
   for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
-    const { text, textItems, viewport } = await extractPageTextData(
+    const { text, textItems, viewport, styles } = await extractPageTextData(
       pdfDocument,
       pageNumber,
     );
@@ -55,7 +55,7 @@ export async function searchPdfText(
         matchIndex,
         pageTextStart: match.start,
         pageTextEnd: match.end,
-        bbox: findTextMatchBbox(textItems, match, viewport),
+        bbox: findTextMatchBbox(textItems, match, viewport, styles),
       });
     });
 

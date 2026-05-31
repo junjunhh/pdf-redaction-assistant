@@ -36,7 +36,7 @@ export async function extractEntitiesFromPdf(
   const entities: DetectedEntity[] = [];
 
   for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
-    const { text: pageText, textItems, viewport } = await extractPageTextData(
+    const { text: pageText, textItems, viewport, styles } = await extractPageTextData(
       pdfDocument,
       pageNumber,
     );
@@ -44,7 +44,7 @@ export async function extractEntitiesFromPdf(
     const nameMatches = findNameMatches(pageText, dateMatches);
 
     dateMatches.forEach((match, matchIndex) => {
-      const bounds = findTextMatchBounds(textItems, match, viewport);
+      const bounds = findTextMatchBounds(textItems, match, viewport, styles);
 
       entities.push(
         createEntity(
@@ -61,7 +61,7 @@ export async function extractEntitiesFromPdf(
     });
 
     nameMatches.forEach((match, matchIndex) => {
-      const bounds = findTextMatchBounds(textItems, match, viewport);
+      const bounds = findTextMatchBounds(textItems, match, viewport, styles);
 
       entities.push(
         createEntity(

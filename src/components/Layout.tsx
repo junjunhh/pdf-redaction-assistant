@@ -215,32 +215,28 @@ function Layout({
     ],
     [visibleEntities],
   );
+  // Left/right arrow navigation walks every detected entity and manual
+  // redaction in panel order (grouped by type), regardless of selection, so the
+  // arrows always step to the next/previous item and scroll it into view. (It
+  // previously included only *selected* items, which made the arrows jump to an
+  // unrelated item — or do nothing — when the active entity wasn't selected.)
   const keyboardNavigationEntities = useMemo(() => {
     const items: KeyboardNavigationItem[] = [];
 
     (['date', 'name'] as const).forEach((type) => {
       entitiesInPanelOrder
-        .filter((entity) => entity.type === type && selectedEntityIds.has(entity.id))
+        .filter((entity) => entity.type === type)
         .forEach((entity) => items.push({ kind: 'entity', entity }));
 
       visibleManualRedactions
-        .filter(
-          (redaction) =>
-            redaction.category === type &&
-            selectedManualRedactionIds.has(redaction.id),
-        )
+        .filter((redaction) => redaction.category === type)
         .forEach((redaction) =>
           items.push({ kind: 'manual-redaction', redaction }),
         );
     });
 
     return items;
-  }, [
-    entitiesInPanelOrder,
-    selectedEntityIds,
-    selectedManualRedactionIds,
-    visibleManualRedactions,
-  ]);
+  }, [entitiesInPanelOrder, visibleManualRedactions]);
 
   const registerPageRef = useCallback(
     (pageNumber: number, node: HTMLElement | null) => {
@@ -277,6 +273,14 @@ function Layout({
       }
 
       const frameNode = pageNode.querySelector<HTMLElement>('.pdf-page-frame');
+      const scrollToPageTop = () => {
+        const pageRect = pageNode.getBoundingClientRect();
+        const viewerRect = viewerNode.getBoundingClientRect();
+
+        viewerNode.scrollTo({
+          top: Math.max(0, viewerNode.scrollTop + pageRect.top - viewerRect.top),
+        });
+      };
 
       // Resolve the entity's vertical span (top/bottom) in client coordinates,
       // preferring the rendered overlay and falling back to the stored bbox.
@@ -302,27 +306,6 @@ function Layout({
         return { top, bottom: top + box.height * scale };
       };
 
-      // If the entity is already fully visible within the viewer, leave the
-      // scroll position untouched — only navigate when it's off-screen.
-      const isAlreadyVisible = () => {
-        if (frameNode?.dataset.renderState !== 'ready') {
-          return false;
-        }
-
-        const span = getTargetClientSpan();
-
-        if (!span) {
-          return false;
-        }
-
-        const viewerRect = viewerNode.getBoundingClientRect();
-        return span.top >= viewerRect.top && span.bottom <= viewerRect.bottom;
-      };
-
-      if (isAlreadyVisible()) {
-        return;
-      }
-
       // Center the entity within the viewer. The page may still be rendering,
       // so re-run once it reports ready to refine against the real overlay; in
       // the meantime an estimate from the stored bbox keeps the entity visible.
@@ -330,7 +313,8 @@ function Layout({
       let didFinalScroll = false;
 
       const centerEntity = () => {
-        if (!frameNode || !box) {
+        if (!frameNode) {
+          scrollToPageTop();
           return;
         }
 
@@ -339,6 +323,15 @@ function Layout({
         const viewerRect = viewerNode.getBoundingClientRect();
 
         if (!span) {
+          scrollToPageTop();
+
+          if (Date.now() < deadline) {
+            window.setTimeout(
+              () => window.requestAnimationFrame(centerEntity),
+              120,
+            );
+          }
+
           return;
         }
 
@@ -350,10 +343,7 @@ function Layout({
           (targetCenterClientY - viewerRect.top) -
           viewerNode.clientHeight / 2;
 
-        viewerNode.scrollTo({
-          top: Math.max(0, nextScrollTop),
-          behavior: 'smooth',
-        });
+        viewerNode.scrollTo({ top: Math.max(0, nextScrollTop) });
 
         // Keep refining until the page has rendered and we've centered on the
         // real overlay, then stop.
@@ -369,7 +359,7 @@ function Layout({
         }
       };
 
-      pageNode.scrollIntoView({ block: 'start' });
+      centerEntity();
       window.requestAnimationFrame(centerEntity);
     },
     [viewerRef],
@@ -440,6 +430,40 @@ function Layout({
       setActiveEntityId((current) =>
         current === action.entityId ? null : current,
       );
+    },
+    [],
+  );
+
+  const restoreEntityBlackout = useCallback(
+    (action: Extract<HistoryAction, { kind: 'entity-blackout' }>) => {
+      setBlackedOutEntityIds((current) => {
+        const nextBlackedOutEntityIds = new Set(current);
+
+        if (action.previousBlackedOut) {
+          nextBlackedOutEntityIds.add(action.entityId);
+        } else {
+          nextBlackedOutEntityIds.delete(action.entityId);
+        }
+
+        return nextBlackedOutEntityIds;
+      });
+    },
+    [],
+  );
+
+  const applyEntityBlackout = useCallback(
+    (action: Extract<HistoryAction, { kind: 'entity-blackout' }>) => {
+      setBlackedOutEntityIds((current) => {
+        const nextBlackedOutEntityIds = new Set(current);
+
+        if (action.nextBlackedOut) {
+          nextBlackedOutEntityIds.add(action.entityId);
+        } else {
+          nextBlackedOutEntityIds.delete(action.entityId);
+        }
+
+        return nextBlackedOutEntityIds;
+      });
     },
     [],
   );
@@ -572,6 +596,50 @@ function Layout({
       setActiveManualRedactionId((current) =>
         current === action.redaction.id ? null : current,
       );
+    },
+    [],
+  );
+
+  const restoreManualRedactionBlackout = useCallback(
+    (
+      action: Extract<
+        HistoryAction,
+        { kind: 'manual-redaction-blackout' }
+      >,
+    ) => {
+      setBlackedOutManualRedactionIds((current) => {
+        const nextBlackedOut = new Set(current);
+
+        if (action.previousBlackedOut) {
+          nextBlackedOut.add(action.redactionId);
+        } else {
+          nextBlackedOut.delete(action.redactionId);
+        }
+
+        return nextBlackedOut;
+      });
+    },
+    [],
+  );
+
+  const applyManualRedactionBlackout = useCallback(
+    (
+      action: Extract<
+        HistoryAction,
+        { kind: 'manual-redaction-blackout' }
+      >,
+    ) => {
+      setBlackedOutManualRedactionIds((current) => {
+        const nextBlackedOut = new Set(current);
+
+        if (action.nextBlackedOut) {
+          nextBlackedOut.add(action.redactionId);
+        } else {
+          nextBlackedOut.delete(action.redactionId);
+        }
+
+        return nextBlackedOut;
+      });
     },
     [],
   );
@@ -740,11 +808,17 @@ function Layout({
       case 'entity-delete':
         restoreEntityDeletion(action);
         break;
+      case 'entity-blackout':
+        restoreEntityBlackout(action);
+        break;
       case 'manual-redaction-create':
         restoreManualRedactionCreation(action);
         break;
       case 'manual-redaction-delete':
         restoreManualRedactionDeletion(action);
+        break;
+      case 'manual-redaction-blackout':
+        restoreManualRedactionBlackout(action);
         break;
       case 'manual-redaction-category-change':
         restoreManualRedactionCategoryChange(action);
@@ -761,6 +835,8 @@ function Layout({
     setRedoStack((current) => [...current, action]);
   }, [
     restoreEntityDeletion,
+    restoreEntityBlackout,
+    restoreManualRedactionBlackout,
     restoreManualRedactionBoxUpdate,
     restoreManualRedactionCategoryChange,
     restoreManualRedactionCreation,
@@ -780,11 +856,17 @@ function Layout({
       case 'entity-delete':
         applyEntityDeletion(action);
         break;
+      case 'entity-blackout':
+        applyEntityBlackout(action);
+        break;
       case 'manual-redaction-create':
         applyManualRedactionCreation(action);
         break;
       case 'manual-redaction-delete':
         applyManualRedactionDeletion(action);
+        break;
+      case 'manual-redaction-blackout':
+        applyManualRedactionBlackout(action);
         break;
       case 'manual-redaction-category-change':
         applyManualRedactionCategoryChange(action);
@@ -801,6 +883,8 @@ function Layout({
     setUndoStack((current) => [...current, action]);
   }, [
     applyEntityDeletion,
+    applyEntityBlackout,
+    applyManualRedactionBlackout,
     applyManualRedactionBoxUpdate,
     applyManualRedactionCategoryChange,
     applyManualRedactionCreation,
@@ -838,33 +922,73 @@ function Layout({
     [scrollToEntity, visibleEntities],
   );
 
-  const handleEntityBlackout = useCallback((entityId: string) => {
-    setBlackedOutEntityIds((current) => {
-      const nextBlackedOutEntityIds = new Set(current);
-
-      if (nextBlackedOutEntityIds.has(entityId)) {
-        nextBlackedOutEntityIds.delete(entityId);
-      } else {
-        nextBlackedOutEntityIds.add(entityId);
+  const handleEntityBlackout = useCallback(
+    (entityId: string) => {
+      if (!visibleEntities.some((entity) => entity.id === entityId)) {
+        return;
       }
 
-      return nextBlackedOutEntityIds;
-    });
-  }, []);
+      const previousBlackedOut = blackedOutEntityIds.has(entityId);
+      const nextBlackedOut = !previousBlackedOut;
 
-  const handleManualRedactionBlackout = useCallback((redactionId: string) => {
-    setBlackedOutManualRedactionIds((current) => {
-      const nextBlackedOut = new Set(current);
+      recordDeletionAction({
+        kind: 'entity-blackout',
+        entityId,
+        previousBlackedOut,
+        nextBlackedOut,
+      });
+      setActiveEntityId(entityId);
+      setActiveManualRedactionId(null);
+      setBlackedOutEntityIds((current) => {
+        const nextBlackedOutEntityIds = new Set(current);
 
-      if (nextBlackedOut.has(redactionId)) {
-        nextBlackedOut.delete(redactionId);
-      } else {
-        nextBlackedOut.add(redactionId);
+        if (nextBlackedOut) {
+          nextBlackedOutEntityIds.add(entityId);
+        } else {
+          nextBlackedOutEntityIds.delete(entityId);
+        }
+
+        return nextBlackedOutEntityIds;
+      });
+    },
+    [blackedOutEntityIds, recordDeletionAction, visibleEntities],
+  );
+
+  const handleManualRedactionBlackout = useCallback(
+    (redactionId: string) => {
+      if (!visibleManualRedactions.some((redaction) => redaction.id === redactionId)) {
+        return;
       }
 
-      return nextBlackedOut;
-    });
-  }, []);
+      const previousBlackedOut = blackedOutManualRedactionIds.has(redactionId);
+      const nextBlackedOut = !previousBlackedOut;
+
+      recordDeletionAction({
+        kind: 'manual-redaction-blackout',
+        redactionId,
+        previousBlackedOut,
+        nextBlackedOut,
+      });
+      setActiveEntityId(null);
+      setActiveManualRedactionId(redactionId);
+      setBlackedOutManualRedactionIds((current) => {
+        const nextBlackedOutIds = new Set(current);
+
+        if (nextBlackedOut) {
+          nextBlackedOutIds.add(redactionId);
+        } else {
+          nextBlackedOutIds.delete(redactionId);
+        }
+
+        return nextBlackedOutIds;
+      });
+    },
+    [
+      blackedOutManualRedactionIds,
+      recordDeletionAction,
+      visibleManualRedactions,
+    ],
+  );
 
   const handleEntityTypeSelectionToggle = useCallback(
     (type: DetectedEntity['type'], shouldSelect: boolean) => {
@@ -1448,6 +1572,18 @@ function Layout({
       if (nextItem.kind === 'entity') {
         setActiveEntityId(nextItem.entity.id);
         setActiveManualRedactionId(null);
+        // Select the item we navigate to so its highlight overlay renders — an
+        // active-but-unselected entity has no overlay, so the viewer would have
+        // nothing to emphasize or scroll to.
+        setSelectedEntityIds((current) => {
+          if (current.has(nextItem.entity.id)) {
+            return current;
+          }
+
+          const next = new Set(current);
+          next.add(nextItem.entity.id);
+          return next;
+        });
         scrollToEntity(
           nextItem.entity.pageNumber,
           nextItem.entity.bbox,
@@ -1456,6 +1592,15 @@ function Layout({
       } else {
         setActiveEntityId(null);
         setActiveManualRedactionId(nextItem.redaction.id);
+        setSelectedManualRedactionIds((current) => {
+          if (current.has(nextItem.redaction.id)) {
+            return current;
+          }
+
+          const next = new Set(current);
+          next.add(nextItem.redaction.id);
+          return next;
+        });
         scrollToEntity(
           nextItem.redaction.pageNumber,
           getUnionBox(nextItem.redaction.boxes),
