@@ -251,10 +251,16 @@ function Layout({
 
   const scrollToPage = useCallback(
     (pageNumber: number) => {
-      const pageNode = pageRefs.current.get(pageNumber);
-      const viewerNode = viewerRef.current;
+      const viewerNode =
+        viewerRef.current ?? document.querySelector<HTMLElement>('.viewer-stage');
+      const pageNode =
+        pageRefs.current.get(pageNumber) ??
+        viewerNode?.querySelector<HTMLElement>(
+          `.pdf-page[data-page-number="${pageNumber}"]`,
+        ) ??
+        null;
 
-      if (!pageNode) {
+      if (!pageNode || !viewerNode) {
         return;
       }
 
@@ -262,26 +268,35 @@ function Layout({
 
       // Instant scroll (see scrollToEntity): a smooth scroll gets interrupted by
       // lazy page renders / the scroll-spy observer and snaps back to the top.
-      if (viewerNode) {
-        viewerNode.scrollTo({
-          top: Math.max(0, pageNode.offsetTop - viewerNode.offsetTop),
-        });
-      } else {
-        pageNode.scrollIntoView({ block: 'start' });
-      }
+      const pageRect = pageNode.getBoundingClientRect();
+      const viewerRect = viewerNode.getBoundingClientRect();
+      viewerNode.scrollTo({
+        top: Math.max(0, pageRect.top - viewerRect.top + viewerNode.scrollTop),
+        behavior: 'auto',
+      });
     },
     [viewerRef],
   );
 
   const scrollToEntity = useCallback(
     (pageNumber: number, box: TextBounds | null, targetSelector: string) => {
-      const pageNode = pageRefs.current.get(pageNumber);
-      const viewerNode = viewerRef.current;
+      const viewerNode =
+        viewerRef.current ?? document.querySelector<HTMLElement>('.viewer-stage');
+      // Prefer the registered ref, but fall back to querying the page node from
+      // the DOM by its page number. The ref map can momentarily lack an entry
+      // (e.g. just after a document switch clears it, before callback refs
+      // re-run), and without this fallback scrollToEntity would early-return and
+      // the center PDF panel would not scroll at all.
+      const pageNode =
+        pageRefs.current.get(pageNumber) ??
+        viewerNode?.querySelector<HTMLElement>(
+          `.pdf-page[data-page-number="${pageNumber}"]`,
+        ) ??
+        null;
 
       setCurrentPage(pageNumber);
 
       if (!pageNode || !viewerNode) {
-        pageNode?.scrollIntoView({ block: 'start' });
         return;
       }
 
@@ -292,37 +307,64 @@ function Layout({
       // in the DOM. Instant (not smooth) scrolling — a smooth animation gets
       // interrupted/reset by lazy page renders and the scroll-spy observer.
       const centerOn = (): boolean => {
-        const pageTopInViewer = pageNode.offsetTop - viewerNode.offsetTop;
         const scale = Number(pageNode.dataset.renderScale) || 1;
-        const frameNode =
-          pageNode.querySelector<HTMLElement>('.pdf-page-frame');
         const overlay = pageNode.querySelector<HTMLElement>(targetSelector);
+        const pageRect = pageNode.getBoundingClientRect();
+        const viewerRect = viewerNode.getBoundingClientRect();
 
-        let offsetWithinPage: number;
-        let targetHeight: number;
-        const haveOverlay = Boolean(overlay && frameNode);
+        let targetCenterY: number;
+        let targetCenterX: number;
+        const haveOverlay = Boolean(overlay);
 
-        if (overlay && frameNode) {
+        if (overlay) {
           const overlayRect = overlay.getBoundingClientRect();
-          const frameRect = frameNode.getBoundingClientRect();
-          offsetWithinPage = overlayRect.top - frameRect.top;
-          targetHeight = overlayRect.height;
+          targetCenterY =
+            overlayRect.top -
+            viewerRect.top +
+            viewerNode.scrollTop +
+            overlayRect.height / 2;
+          targetCenterX =
+            overlayRect.left -
+            viewerRect.left +
+            viewerNode.scrollLeft +
+            overlayRect.width / 2;
         } else if (box) {
-          offsetWithinPage = box.y * scale;
-          targetHeight = box.height * scale;
+          targetCenterY =
+            pageRect.top -
+            viewerRect.top +
+            viewerNode.scrollTop +
+            box.y * scale +
+            (box.height * scale) / 2;
+          targetCenterX =
+            pageRect.left -
+            viewerRect.left +
+            viewerNode.scrollLeft +
+            box.x * scale +
+            (box.width * scale) / 2;
         } else {
-          offsetWithinPage = 0;
-          targetHeight = 0;
+          targetCenterY =
+            pageRect.top - viewerRect.top + viewerNode.scrollTop;
+          targetCenterX =
+            pageRect.left - viewerRect.left + viewerNode.scrollLeft;
         }
 
-        const targetCenter =
-          pageTopInViewer + offsetWithinPage + targetHeight / 2;
         const nextScrollTop = Math.max(
           0,
-          targetCenter - viewerNode.clientHeight / 2,
+          targetCenterY - viewerNode.clientHeight / 2,
+        );
+        const nextScrollLeft = Math.max(
+          0,
+          targetCenterX - viewerNode.clientWidth / 2,
         );
 
-        viewerNode.scrollTo({ top: nextScrollTop });
+        viewerNode.scrollTop = nextScrollTop;
+        viewerNode.scrollLeft = nextScrollLeft;
+
+        viewerNode.scrollTo({
+          top: nextScrollTop,
+          left: nextScrollLeft,
+          behavior: 'auto',
+        });
 
         // Report whether we've centered on the real overlay (so polling stops).
         return haveOverlay;
@@ -883,28 +925,19 @@ function Layout({
     (entityId: string) => {
       const entity = visibleEntities.find((item) => item.id === entityId);
 
-      // Compute the next selection from current state *before* the setter — the
-      // updater callback does not run synchronously, so reading the result
-      // inside it (to decide whether to scroll) would use a stale value.
-      const willBeSelected = !selectedEntityIds.has(entityId);
-
       setActiveEntityId(entityId);
       setActiveManualRedactionId(null);
       setSelectedEntityIds((current) => {
-        const nextSelectedEntityIds = new Set(current);
-
-        if (nextSelectedEntityIds.has(entityId)) {
-          nextSelectedEntityIds.delete(entityId);
-        } else {
-          nextSelectedEntityIds.add(entityId);
+        if (current.has(entityId)) {
+          return current;
         }
 
+        const nextSelectedEntityIds = new Set(current);
+        nextSelectedEntityIds.add(entityId);
         return nextSelectedEntityIds;
       });
 
-      // Only scroll when selecting — on deselect the overlay is removed and
-      // there is nothing to center on.
-      if (entity && willBeSelected) {
+      if (entity) {
         scrollToEntity(
           entity.pageNumber,
           entity.bbox,
@@ -912,7 +945,7 @@ function Layout({
         );
       }
     },
-    [scrollToEntity, selectedEntityIds, visibleEntities],
+    [scrollToEntity, visibleEntities],
   );
 
   const handleEntityBlackout = useCallback(
@@ -1153,29 +1186,21 @@ function Layout({
         return;
       }
 
-      // Toggle: clicking the already-active redaction deselects it (clears the
-      // active state) without deleting it. Compute from current state so the
-      // scroll decision below doesn't rely on an async setter callback.
-      const willBeActive = activeManualRedactionId !== redactionId;
-
       setActiveEntityId(null);
-      setActiveManualRedactionId(willBeActive ? redactionId : null);
+      setActiveManualRedactionId(redactionId);
       setSelectedManualRedactionIds((current) => {
-        const nextSelectedManualRedactionIds = new Set(current);
-
-        if (nextSelectedManualRedactionIds.has(redactionId)) {
-          nextSelectedManualRedactionIds.delete(redactionId);
-        } else {
-          nextSelectedManualRedactionIds.add(redactionId);
+        if (current.has(redactionId)) {
+          return current;
         }
 
+        const nextSelectedManualRedactionIds = new Set(current);
+        nextSelectedManualRedactionIds.add(redactionId);
         return nextSelectedManualRedactionIds;
       });
 
       const redaction = manualRedactions.find((item) => item.id === redactionId);
 
-      // Only scroll when selecting — on deselect there's nothing to center on.
-      if (redaction && willBeActive) {
+      if (redaction) {
         scrollToEntity(
           redaction.pageNumber,
           getUnionBox(redaction.boxes),
@@ -1183,7 +1208,7 @@ function Layout({
         );
       }
     },
-    [activeManualRedactionId, manualRedactions, scrollToEntity],
+    [manualRedactions, scrollToEntity],
   );
 
   const handleManualRedactionCategoryChange = useCallback(
@@ -1488,6 +1513,22 @@ function Layout({
   }, [activeEntityId]);
 
   useEffect(() => {
+    if (!activeEntity) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      scrollToEntity(
+        activeEntity.pageNumber,
+        activeEntity.bbox,
+        `[data-entity-id="${CSS.escape(activeEntity.id)}"]`,
+      );
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeEntity, scrollToEntity]);
+
+  useEffect(() => {
     if (!activeManualRedactionId) {
       return;
     }
@@ -1501,6 +1542,30 @@ function Layout({
       row?.scrollIntoView({ block: 'nearest' });
     });
   }, [activeManualRedactionId]);
+
+  useEffect(() => {
+    if (!activeManualRedactionId) {
+      return;
+    }
+
+    const redaction = manualRedactions.find(
+      (item) => item.id === activeManualRedactionId,
+    );
+
+    if (!redaction) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      scrollToEntity(
+        redaction.pageNumber,
+        getUnionBox(redaction.boxes),
+        `[data-redaction-id="${CSS.escape(redaction.id)}"]`,
+      );
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeManualRedactionId, manualRedactions, scrollToEntity]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
