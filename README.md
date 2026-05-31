@@ -17,6 +17,62 @@ For a production readiness check:
 npm run build
 ```
 
+## Project Structure
+
+```txt
+.
+├── index.html                # Vite entry HTML
+├── vite.config.ts            # Vite + React + Tailwind config
+├── tsconfig.json             # TypeScript config
+├── package.json
+└── src/
+    ├── main.tsx              # App bootstrap; mounts <App>, loads global CSS
+    ├── App.tsx               # Document queue owner: upload, validation, active doc
+    ├── styles.css            # App-shell / workspace layout styles
+    ├── tailwind.css          # Tailwind entry
+    ├── theme.css             # Light/dark theme tokens
+    │
+    ├── components/           # UI (presentation + interaction)
+    │   ├── LandingUpload.tsx     # Empty-state upload screen (first view)
+    │   ├── FileUpload.tsx        # File <input> / drag-and-drop control
+    │   ├── Layout.tsx            # Main workspace controller + per-doc edit state
+    │   ├── ThumbnailPanel.tsx    # Left panel: page thumbnail strip
+    │   ├── PdfThumbnail.tsx      # One cached page thumbnail + delete
+    │   ├── PdfViewer.tsx         # Center panel: toolbar, zoom, page windowing
+    │   ├── PdfPage.tsx           # One page: canvas, text layer, overlays, drawing
+    │   ├── EntityPanel.tsx       # Right panel: entities, redactions, search
+    │   ├── EntitySection.tsx     # Collapsible Dates / Names group
+    │   ├── EntityRow.tsx         # One detected-entity row
+    │   ├── ColorLegend.tsx       # Date/name color key
+    │   ├── InfoBanner.tsx        # Inline status / info messages
+    │   └── ThemeToggle.tsx       # Light/dark toggle button
+    │
+    ├── lib/                  # Logic (no React; unit-testable)
+    │   ├── pdfLoader.ts          # Load an ArrayBuffer into pdf.js
+    │   ├── pdfText.ts            # Per-page text extraction + PDF coord mapping
+    │   ├── datePatterns.ts       # Date regex patterns + matcher
+    │   ├── namePatterns.ts       # Title-case name heuristics + blocklists
+    │   ├── extractEntities.ts    # Build normalized DetectedEntity records
+    │   ├── searchPdf.ts          # Full-document text search
+    │   ├── measurePdfHighlightBoxes.ts  # Remeasure boxes vs. offscreen text layer
+    │   ├── exportHighlightedPdf.ts      # Draw highlights, collect black-outs, export
+    │   ├── rasterizeRedactedPages.ts    # True redaction: flatten redacted pages
+    │   ├── exportDocument.ts            # Single-document export pipeline
+    │   ├── exportAllAsZip.ts            # Batch ZIP export with unique filenames
+    │   ├── documentsReducer.ts          # Multi-document queue reducer
+    │   ├── useTheme.ts                  # Theme state + persistence hook
+    │   └── pdfErrors.ts                 # pdf.js cancellation-error helper
+    │
+    └── types/                # Shared TypeScript models
+        ├── entity.ts             # EntityType, DetectedEntity, ManualRedaction, ...
+        └── document.ts           # DocumentEntry, DocumentEditState, HistoryAction
+```
+
+The split is deliberate: `components/` holds React/UI, `lib/` holds framework-free
+logic (PDF parsing, entity detection, coordinate math, export), and `types/` holds
+the shared data model both sides agree on. See **Problem Decomposition** below for
+how these pieces map onto the problems they solve.
+
 ## Problem Decomposition
 
 ### 1. Load PDFs in the Browser
