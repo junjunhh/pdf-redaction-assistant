@@ -1928,7 +1928,16 @@ button.entity-highlight-overlay:hover {
 }
 
 .viewer-stage {
+  /* This is the last `.viewer-stage` rule in the file, so it wins the cascade.
+     It must carry every scroll-critical property — display/flex/min-height/
+     overflow — or the center PDF panel stops being its own scroll container and
+     the page scrolls instead (only the side panels appear to move). */
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
   align-items: start;
+  justify-items: center;
+  overflow: auto;
   background: #f3f4f6;
   padding: 32px;
 }

@@ -249,16 +249,29 @@ function Layout({
     [],
   );
 
-  const scrollToPage = useCallback((pageNumber: number) => {
-    const pageNode = pageRefs.current.get(pageNumber);
+  const scrollToPage = useCallback(
+    (pageNumber: number) => {
+      const pageNode = pageRefs.current.get(pageNumber);
+      const viewerNode = viewerRef.current;
 
-    if (!pageNode) {
-      return;
-    }
+      if (!pageNode) {
+        return;
+      }
 
-    setCurrentPage(pageNumber);
-    pageNode.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
+      setCurrentPage(pageNumber);
+
+      // Instant scroll (see scrollToEntity): a smooth scroll gets interrupted by
+      // lazy page renders / the scroll-spy observer and snaps back to the top.
+      if (viewerNode) {
+        viewerNode.scrollTo({
+          top: Math.max(0, pageNode.offsetTop - viewerNode.offsetTop),
+        });
+      } else {
+        pageNode.scrollIntoView({ block: 'start' });
+      }
+    },
+    [viewerRef],
+  );
 
   const scrollToEntity = useCallback(
     (pageNumber: number, box: TextBounds | null, targetSelector: string) => {
@@ -268,99 +281,53 @@ function Layout({
       setCurrentPage(pageNumber);
 
       if (!pageNode || !viewerNode) {
-        pageNode?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        pageNode?.scrollIntoView({ block: 'start' });
         return;
       }
 
-      const frameNode = pageNode.querySelector<HTMLElement>('.pdf-page-frame');
-      const scrollToPageTop = () => {
-        const pageRect = pageNode.getBoundingClientRect();
-        const viewerRect = viewerNode.getBoundingClientRect();
-
-        viewerNode.scrollTo({
-          top: Math.max(0, viewerNode.scrollTop + pageRect.top - viewerRect.top),
-        });
-      };
-
-      // Resolve the entity's vertical span (top/bottom) in client coordinates,
-      // preferring the rendered overlay and falling back to the stored bbox.
-      const getTargetClientSpan = () => {
-        if (!frameNode) {
-          return null;
-        }
-
-        const overlay = pageNode.querySelector<HTMLElement>(targetSelector);
-
-        if (overlay) {
-          const overlayRect = overlay.getBoundingClientRect();
-          return { top: overlayRect.top, bottom: overlayRect.bottom };
-        }
-
-        if (!box) {
-          return null;
-        }
-
+      // Compute the page's top within the viewer's scroll space using stable
+      // offset math (independent of the current scroll position), then center
+      // the entity. The entity's vertical position within the page comes from
+      // the rendered overlay if present, otherwise the stored bbox, otherwise
+      // the page top. A single scroll — no retry loop — avoids fighting the
+      // scroll-spy observer and lazy page renders.
+      const centerOn = () => {
+        const pageTopInViewer = pageNode.offsetTop - viewerNode.offsetTop;
         const scale = Number(pageNode.dataset.renderScale) || 1;
-        const frameRect = frameNode.getBoundingClientRect();
-        const top = frameRect.top + box.y * scale;
-        return { top, bottom: top + box.height * scale };
-      };
 
-      // Center the entity within the viewer. The page may still be rendering,
-      // so re-run once it reports ready to refine against the real overlay; in
-      // the meantime an estimate from the stored bbox keeps the entity visible.
-      const deadline = Date.now() + 4000;
-      let didFinalScroll = false;
+        let offsetWithinPage = 0;
+        let targetHeight = 0;
 
-      const centerEntity = () => {
-        if (!frameNode) {
-          scrollToPageTop();
-          return;
-        }
-
-        const isReady = frameNode.dataset.renderState === 'ready';
-        const span = getTargetClientSpan();
-        const viewerRect = viewerNode.getBoundingClientRect();
-
-        if (!span) {
-          scrollToPageTop();
-
-          if (Date.now() < deadline) {
-            window.setTimeout(
-              () => window.requestAnimationFrame(centerEntity),
-              120,
-            );
-          }
-
-          return;
-        }
-
-        const targetCenterClientY = (span.top + span.bottom) / 2;
         const overlay = pageNode.querySelector<HTMLElement>(targetSelector);
+        const frameNode =
+          pageNode.querySelector<HTMLElement>('.pdf-page-frame');
 
-        const nextScrollTop =
-          viewerNode.scrollTop +
-          (targetCenterClientY - viewerRect.top) -
-          viewerNode.clientHeight / 2;
-
-        viewerNode.scrollTo({ top: Math.max(0, nextScrollTop) });
-
-        // Keep refining until the page has rendered and we've centered on the
-        // real overlay, then stop.
-        if (isReady && overlay) {
-          didFinalScroll = true;
+        if (overlay && frameNode) {
+          const overlayRect = overlay.getBoundingClientRect();
+          const frameRect = frameNode.getBoundingClientRect();
+          offsetWithinPage = overlayRect.top - frameRect.top;
+          targetHeight = overlayRect.height;
+        } else if (box) {
+          offsetWithinPage = box.y * scale;
+          targetHeight = box.height * scale;
         }
 
-        if (!didFinalScroll && Date.now() < deadline) {
-          window.setTimeout(
-            () => window.requestAnimationFrame(centerEntity),
-            120,
-          );
-        }
+        const targetCenter = pageTopInViewer + offsetWithinPage + targetHeight / 2;
+        const nextScrollTop = Math.max(
+          0,
+          targetCenter - viewerNode.clientHeight / 2,
+        );
+
+        // Instant (not smooth): lazy page rendering and the scroll-spy observer
+        // re-run during navigation and interrupt an in-progress smooth scroll,
+        // snapping it back to the top — an instant scroll lands and stays.
+        viewerNode.scrollTo({ top: nextScrollTop });
       };
 
-      centerEntity();
-      window.requestAnimationFrame(centerEntity);
+      // Scroll now (using the bbox estimate), then refine once on the next
+      // frame after the page has had a chance to render its overlay.
+      centerOn();
+      window.requestAnimationFrame(centerOn);
     },
     [viewerRef],
   );
