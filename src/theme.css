@@ -1,0 +1,162 @@
+/*
+ * Dark mode override layer. Activated by `data-theme="dark"` on <html>.
+ *
+ * The Figma-derived UI uses Tailwind utility classes (bg-white, text-gray-*,
+ * border-gray-*, etc.) plus a few structural classes from styles.css. Rather
+ * than add dark: variants to every component, we remap the specific surfaces
+ * here. `html[data-theme="dark"]` outranks single-class utilities on
+ * specificity, so these win without !important.
+ *
+ * The rendered PDF page itself is intentionally left light (PDFs are white),
+ * only the surrounding app chrome is darkened.
+ */
+
+:root {
+  color-scheme: light;
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+/* ---- Surfaces (backgrounds) ---- */
+html[data-theme='dark'] .bg-white {
+  background-color: #1e293b;
+}
+
+html[data-theme='dark'] .bg-gray-50 {
+  background-color: #0f172a;
+}
+
+html[data-theme='dark'] .bg-gray-100 {
+  background-color: #334155;
+}
+
+html[data-theme='dark'] .bg-gray-200 {
+  background-color: #475569;
+}
+
+html[data-theme='dark'] .bg-blue-50 {
+  background-color: #1e293b;
+}
+
+html[data-theme='dark'] .bg-red-50 {
+  background-color: #3a1d22;
+}
+
+html[data-theme='dark'] .bg-yellow-100 {
+  background-color: #4a3f1a;
+}
+
+/* Gradient header strip on the review panel */
+html[data-theme='dark'] .bg-gradient-to-r.from-blue-50 {
+  background-image: linear-gradient(to right, #1e293b, #1e1b4b);
+}
+
+/* ---- Muted icon chips ---- */
+html[data-theme='dark'] .bg-amber-100 {
+  background-color: #4a3f1a;
+}
+
+html[data-theme='dark'] .bg-blue-100 {
+  background-color: #1e2f4d;
+}
+
+html[data-theme='dark'] .text-amber-700 {
+  color: #fcd34d;
+}
+
+html[data-theme='dark'] .text-blue-700 {
+  color: #93c5fd;
+}
+
+/* ---- Text ---- */
+html[data-theme='dark'] .text-gray-800,
+html[data-theme='dark'] .text-gray-700 {
+  color: #e2e8f0;
+}
+
+html[data-theme='dark'] .text-gray-600,
+html[data-theme='dark'] .text-gray-500 {
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .text-gray-400 {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .text-blue-900 {
+  color: #bfdbfe;
+}
+
+html[data-theme='dark'] .text-blue-800,
+html[data-theme='dark'] .text-blue-700,
+html[data-theme='dark'] .text-blue-600 {
+  color: #93c5fd;
+}
+
+html[data-theme='dark'] .text-yellow-800 {
+  color: #fde68a;
+}
+
+/* ---- Borders ---- subtle separators ---- */
+html[data-theme='dark'] .border-gray-200,
+html[data-theme='dark'] .border-gray-300 {
+  border-color: #334155;
+}
+
+/* ---- Form controls ---- */
+html[data-theme='dark'] input,
+html[data-theme='dark'] select {
+  background-color: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+html[data-theme='dark'] input::placeholder {
+  color: #94a3b8;
+}
+
+/* ---- Structural classes from styles.css ---- */
+html[data-theme='dark'] body,
+html[data-theme='dark'] .app-shell {
+  background: #0b1220;
+  color: #e2e8f0;
+}
+
+html[data-theme='dark'] .viewer-panel,
+html[data-theme='dark'] .workspace {
+  background: #0f172a;
+}
+
+html[data-theme='dark'] .viewer-stage {
+  background: #0b1220;
+}
+
+html[data-theme='dark'] .toolbar-status {
+  color: #94a3b8;
+}
+
+/* Landing page */
+html[data-theme='dark'] .landing-shell {
+  background: #0b1220;
+}
+
+html[data-theme='dark'] .hover\:bg-gray-50:hover,
+html[data-theme='dark'] .hover\:bg-gray-100:hover {
+  background-color: #334155;
+}
+
+/* Segmented control: active pill should read as raised (lighter) on dark. */
+html[data-theme='dark'] [aria-label='Search mode'] .bg-white {
+  background-color: #475569;
+}
+
+html[data-theme='dark'] [aria-label='Search mode'] .text-gray-900 {
+  color: #f8fafc;
+}
+
+/* Generic dark text fallback for any remaining near-black text utilities. */
+html[data-theme='dark'] .text-gray-900 {
+  color: #e2e8f0;
+}
