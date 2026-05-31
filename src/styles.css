@@ -1933,7 +1933,8 @@ button.entity-highlight-overlay:hover {
      overflow — or the center PDF panel stops being its own scroll container and
      the page scrolls instead (only the side panels appear to move). */
   display: grid;
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  height: 0;
   min-height: 0;
   align-items: start;
   justify-items: center;
@@ -2586,10 +2587,17 @@ button.entity-highlight-overlay:hover {
 .manual-redaction-editor-header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 10px;
   font-size: 0.78rem;
   font-weight: 900;
+}
+
+.manual-redaction-editor-title {
+  color: #e5e7eb;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .manual-redaction-delete {

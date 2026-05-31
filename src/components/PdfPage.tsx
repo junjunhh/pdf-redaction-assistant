@@ -680,6 +680,20 @@ function PdfPage({
         data-render-state={renderState}
         data-sized={viewportSize || placeholderSize ? 'true' : undefined}
         ref={frameRef}
+        onMouseDown={(event) => {
+          // Click on empty space dismisses the active redaction's editor box.
+          // Ignore clicks on a redaction overlay, its resize handles, or the
+          // editor itself (those have their own handlers / stop propagation).
+          if (
+            activeManualRedactionId &&
+            event.target instanceof HTMLElement &&
+            !event.target.closest(
+              '.manual-redaction-overlay, .manual-redaction-handle, .manual-redaction-editor, .entity-highlight-overlay',
+            )
+          ) {
+            onManualRedactionSelect(null);
+          }
+        }}
         style={
           viewportSize
             ? {
@@ -921,6 +935,11 @@ function PdfPage({
                   onMouseDown={(event) => event.stopPropagation()}
                 >
                 <div className="manual-redaction-editor-header">
+                  <span className="manual-redaction-editor-title">
+                    {activeManualRedaction.source === 'region'
+                      ? 'Drawn Region'
+                      : 'Text Redaction'}
+                  </span>
                   <button
                     aria-label="Delete redaction"
                     className="manual-redaction-delete"
