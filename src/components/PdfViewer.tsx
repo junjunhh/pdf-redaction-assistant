@@ -5,6 +5,7 @@ import {
   Download,
   Highlighter,
   Redo,
+  Square,
   SquareDashedBottom,
   Undo,
   ZoomIn,
@@ -54,6 +55,8 @@ type PdfViewerProps = {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  canBlackoutAll: boolean;
+  onBlackoutAll: () => void;
   onDownloadHighlightedPdf: () => void;
   onManualRedactionCreate: (
     pageNumber: number,
@@ -102,6 +105,8 @@ function PdfViewer({
   canRedo,
   onUndo,
   onRedo,
+  canBlackoutAll,
+  onBlackoutAll,
   onDownloadHighlightedPdf,
   onManualRedactionCreate,
   onManualRedactionSelect,
@@ -334,6 +339,16 @@ function PdfViewer({
           >
             <SquareDashedBottom className="w-4 h-4" />
             Draw Region
+          </button>
+          <button
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            type="button"
+            disabled={!canBlackoutAll}
+            title="Black out every detected entity and manual redaction"
+            onClick={onBlackoutAll}
+          >
+            <Square className="w-4 h-4 fill-current" />
+            Black Out All
           </button>
           <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500" aria-label="Jump to page">
             <span>Page</span>

@@ -672,6 +672,39 @@ function Layout({
     [],
   );
 
+  const restoreBlackoutAll = useCallback(
+    (action: Extract<HistoryAction, { kind: 'blackout-all' }>) => {
+      // Undo: clear only the IDs this action newly blacked out.
+      setBlackedOutEntityIds((current) => {
+        const next = new Set(current);
+        action.entityIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      setBlackedOutManualRedactionIds((current) => {
+        const next = new Set(current);
+        action.manualRedactionIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    },
+    [],
+  );
+
+  const applyBlackoutAll = useCallback(
+    (action: Extract<HistoryAction, { kind: 'blackout-all' }>) => {
+      setBlackedOutEntityIds((current) => {
+        const next = new Set(current);
+        action.entityIds.forEach((id) => next.add(id));
+        return next;
+      });
+      setBlackedOutManualRedactionIds((current) => {
+        const next = new Set(current);
+        action.manualRedactionIds.forEach((id) => next.add(id));
+        return next;
+      });
+    },
+    [],
+  );
+
   const restoreManualRedactionCategoryChange = useCallback(
     (
       action: Extract<
@@ -848,6 +881,9 @@ function Layout({
       case 'manual-redaction-blackout':
         restoreManualRedactionBlackout(action);
         break;
+      case 'blackout-all':
+        restoreBlackoutAll(action);
+        break;
       case 'manual-redaction-category-change':
         restoreManualRedactionCategoryChange(action);
         break;
@@ -864,6 +900,7 @@ function Layout({
   }, [
     restoreEntityDeletion,
     restoreEntityBlackout,
+    restoreBlackoutAll,
     restoreManualRedactionBlackout,
     restoreManualRedactionBoxUpdate,
     restoreManualRedactionCategoryChange,
@@ -896,6 +933,9 @@ function Layout({
       case 'manual-redaction-blackout':
         applyManualRedactionBlackout(action);
         break;
+      case 'blackout-all':
+        applyBlackoutAll(action);
+        break;
       case 'manual-redaction-category-change':
         applyManualRedactionCategoryChange(action);
         break;
@@ -912,6 +952,7 @@ function Layout({
   }, [
     applyEntityDeletion,
     applyEntityBlackout,
+    applyBlackoutAll,
     applyManualRedactionBlackout,
     applyManualRedactionBoxUpdate,
     applyManualRedactionCategoryChange,
@@ -1015,6 +1056,50 @@ function Layout({
       visibleManualRedactions,
     ],
   );
+
+  const handleBlackoutAll = useCallback(() => {
+    // Black out every visible entity and manual redaction that isn't already
+    // blacked out. Record only the newly-added IDs so a single undo reverts
+    // exactly this action without touching pre-existing black-outs.
+    const newEntityIds = visibleEntities
+      .filter((entity) => !blackedOutEntityIds.has(entity.id))
+      .map((entity) => entity.id);
+    const newManualRedactionIds = visibleManualRedactions
+      .filter((redaction) => !blackedOutManualRedactionIds.has(redaction.id))
+      .map((redaction) => redaction.id);
+
+    if (newEntityIds.length === 0 && newManualRedactionIds.length === 0) {
+      return;
+    }
+
+    recordDeletionAction({
+      kind: 'blackout-all',
+      entityIds: newEntityIds,
+      manualRedactionIds: newManualRedactionIds,
+    });
+
+    if (newEntityIds.length > 0) {
+      setBlackedOutEntityIds((current) => {
+        const next = new Set(current);
+        newEntityIds.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+
+    if (newManualRedactionIds.length > 0) {
+      setBlackedOutManualRedactionIds((current) => {
+        const next = new Set(current);
+        newManualRedactionIds.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+  }, [
+    blackedOutEntityIds,
+    blackedOutManualRedactionIds,
+    recordDeletionAction,
+    visibleEntities,
+    visibleManualRedactions,
+  ]);
 
   const handleEntityTypeSelectionToggle = useCallback(
     (type: DetectedEntity['type'], shouldSelect: boolean) => {
@@ -1429,6 +1514,12 @@ function Layout({
     blackedOutEntities.length > 0 ||
     selectedManualRedactions.length > 0 ||
     hasDeletedRemainingPages;
+  // Enable "Black Out All" only while something visible is not yet blacked out.
+  const canBlackoutAll =
+    visibleEntities.some((entity) => !blackedOutEntityIds.has(entity.id)) ||
+    visibleManualRedactions.some(
+      (redaction) => !blackedOutManualRedactionIds.has(redaction.id),
+    );
 
   const handleHighlightedPdfDownload = useCallback(async () => {
     if (!originalPdfBytes || !hasDownloadableHighlights) {
@@ -1990,6 +2081,8 @@ function Layout({
             canRedo={redoStack.length > 0}
             onUndo={handleUndo}
             onRedo={handleRedo}
+            canBlackoutAll={canBlackoutAll}
+            onBlackoutAll={handleBlackoutAll}
             canDownloadHighlightedPdf={
               Boolean(originalPdfBytes) && hasDownloadableHighlights
             }

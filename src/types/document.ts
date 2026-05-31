@@ -47,6 +47,13 @@ export type HistoryAction =
       nextBlackedOut: boolean;
     }
   | {
+      kind: 'blackout-all';
+      // Entities/redactions newly blacked out by this action (so undo can clear
+      // exactly those, leaving anything already blacked out untouched).
+      entityIds: string[];
+      manualRedactionIds: string[];
+    }
+  | {
       kind: 'manual-redaction-category-change';
       redactionId: string;
       previousCategory: EntityType;
