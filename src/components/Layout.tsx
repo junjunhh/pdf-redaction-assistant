@@ -285,22 +285,22 @@ function Layout({
         return;
       }
 
-      // Compute the page's top within the viewer's scroll space using stable
-      // offset math (independent of the current scroll position), then center
-      // the entity. The entity's vertical position within the page comes from
-      // the rendered overlay if present, otherwise the stored bbox, otherwise
-      // the page top. A single scroll — no retry loop — avoids fighting the
-      // scroll-spy observer and lazy page renders.
-      const centerOn = () => {
+      // Center the target within the viewer. We prefer the actual rendered
+      // highlight overlay (pixel-accurate) but it only appears once the page
+      // has rendered, so we fall back to the stored bbox (× the page's render
+      // scale) for an immediate scroll, then refine to the overlay once it is
+      // in the DOM. Instant (not smooth) scrolling — a smooth animation gets
+      // interrupted/reset by lazy page renders and the scroll-spy observer.
+      const centerOn = (): boolean => {
         const pageTopInViewer = pageNode.offsetTop - viewerNode.offsetTop;
         const scale = Number(pageNode.dataset.renderScale) || 1;
-
-        let offsetWithinPage = 0;
-        let targetHeight = 0;
-
-        const overlay = pageNode.querySelector<HTMLElement>(targetSelector);
         const frameNode =
           pageNode.querySelector<HTMLElement>('.pdf-page-frame');
+        const overlay = pageNode.querySelector<HTMLElement>(targetSelector);
+
+        let offsetWithinPage: number;
+        let targetHeight: number;
+        const haveOverlay = Boolean(overlay && frameNode);
 
         if (overlay && frameNode) {
           const overlayRect = overlay.getBoundingClientRect();
@@ -310,24 +310,43 @@ function Layout({
         } else if (box) {
           offsetWithinPage = box.y * scale;
           targetHeight = box.height * scale;
+        } else {
+          offsetWithinPage = 0;
+          targetHeight = 0;
         }
 
-        const targetCenter = pageTopInViewer + offsetWithinPage + targetHeight / 2;
+        const targetCenter =
+          pageTopInViewer + offsetWithinPage + targetHeight / 2;
         const nextScrollTop = Math.max(
           0,
           targetCenter - viewerNode.clientHeight / 2,
         );
 
-        // Instant (not smooth): lazy page rendering and the scroll-spy observer
-        // re-run during navigation and interrupt an in-progress smooth scroll,
-        // snapping it back to the top — an instant scroll lands and stays.
         viewerNode.scrollTo({ top: nextScrollTop });
+
+        // Report whether we've centered on the real overlay (so polling stops).
+        return haveOverlay;
       };
 
-      // Scroll now (using the bbox estimate), then refine once on the next
-      // frame after the page has had a chance to render its overlay.
-      centerOn();
-      window.requestAnimationFrame(centerOn);
+      // Immediate scroll using the bbox estimate, then poll a few frames for
+      // the overlay to render and refine onto it. Bounded so it can't loop.
+      if (centerOn()) {
+        return;
+      }
+
+      let attempts = 0;
+      const maxAttempts = 30;
+      const refine = () => {
+        attempts += 1;
+
+        if (centerOn() || attempts >= maxAttempts) {
+          return;
+        }
+
+        window.requestAnimationFrame(refine);
+      };
+
+      window.requestAnimationFrame(refine);
     },
     [viewerRef],
   );
@@ -864,6 +883,11 @@ function Layout({
     (entityId: string) => {
       const entity = visibleEntities.find((item) => item.id === entityId);
 
+      // Compute the next selection from current state *before* the setter — the
+      // updater callback does not run synchronously, so reading the result
+      // inside it (to decide whether to scroll) would use a stale value.
+      const willBeSelected = !selectedEntityIds.has(entityId);
+
       setActiveEntityId(entityId);
       setActiveManualRedactionId(null);
       setSelectedEntityIds((current) => {
@@ -878,7 +902,9 @@ function Layout({
         return nextSelectedEntityIds;
       });
 
-      if (entity) {
+      // Only scroll when selecting — on deselect the overlay is removed and
+      // there is nothing to center on.
+      if (entity && willBeSelected) {
         scrollToEntity(
           entity.pageNumber,
           entity.bbox,
@@ -886,7 +912,7 @@ function Layout({
         );
       }
     },
-    [scrollToEntity, visibleEntities],
+    [scrollToEntity, selectedEntityIds, visibleEntities],
   );
 
   const handleEntityBlackout = useCallback(
@@ -1127,8 +1153,13 @@ function Layout({
         return;
       }
 
+      // Toggle: clicking the already-active redaction deselects it (clears the
+      // active state) without deleting it. Compute from current state so the
+      // scroll decision below doesn't rely on an async setter callback.
+      const willBeActive = activeManualRedactionId !== redactionId;
+
       setActiveEntityId(null);
-      setActiveManualRedactionId(redactionId);
+      setActiveManualRedactionId(willBeActive ? redactionId : null);
       setSelectedManualRedactionIds((current) => {
         const nextSelectedManualRedactionIds = new Set(current);
 
@@ -1143,7 +1174,8 @@ function Layout({
 
       const redaction = manualRedactions.find((item) => item.id === redactionId);
 
-      if (redaction) {
+      // Only scroll when selecting — on deselect there's nothing to center on.
+      if (redaction && willBeActive) {
         scrollToEntity(
           redaction.pageNumber,
           getUnionBox(redaction.boxes),
@@ -1151,7 +1183,7 @@ function Layout({
         );
       }
     },
-    [manualRedactions, scrollToEntity],
+    [activeManualRedactionId, manualRedactions, scrollToEntity],
   );
 
   const handleManualRedactionCategoryChange = useCallback(
