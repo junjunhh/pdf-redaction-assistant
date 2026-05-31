@@ -73,6 +73,154 @@ logic (PDF parsing, entity detection, coordinate math, export), and `types/` hol
 the shared data model both sides agree on. See **Problem Decomposition** below for
 how these pieces map onto the problems they solve.
 
+## How to Use
+
+### 1. Upload PDFs
+
+- On the landing screen, click **Choose PDF** or drag-and-drop one or more `.pdf`
+  files onto the dropzone. Non-PDF files are rejected with a message.
+- Each file opens in its own tab. Use **Upload More PDFs** (top bar) to add more;
+  click a tab to switch, or the tab's **×** to close it. Per-document edits
+  (selections, redactions, deleted pages, undo history) are preserved per tab.
+
+### 2. Review detected entities (right panel)
+
+- Detected **Dates** and **Person Names** are grouped into collapsible sections
+  with a count badge. The header toggles (top bar) show/hide each type.
+- **Click an entity row** to select it — the center PDF scrolls and centers on
+  that word and highlights it. Click again to deselect.
+- **Select all / Clear all** toggles every entity of a type at once.
+- **Filter** box: type to filter rows by text or page number.
+- **Find all** mode: type any text to search the whole document; matches are
+  highlighted in the viewer and listed as results you can jump to.
+
+### 3. Navigate
+
+- **Thumbnails (left panel):** click a page to jump to it; the active page is
+  highlighted and tracks as you scroll.
+- **Page box / Zoom (toolbar):** type a page number to jump; zoom with the −/+
+  buttons, presets, **Fit width**, or **Fit page**.
+- **Keyboard:**
+  - **← / →** — move to the previous/next entity (selects it, scrolls to it).
+  - **Enter / Space** — toggle selection of the active entity.
+  - **Backspace / Delete** — remove the active entity or redaction from review.
+  - **Cmd/Ctrl+Z** — undo; **Cmd/Ctrl+Shift+Z** — redo.
+
+### 4. Redact
+
+- **Black out a detected entity:** click its highlight in the viewer to toggle a
+  solid black box (click again to undo).
+- **Manual Redaction (toolbar):** enable, then select text in the page to mark it.
+  A small editor box appears titled **"Text Redaction"** with a category selector
+  and **Delete**.
+- **Draw Region (toolbar):** enable, then drag a box anywhere (e.g. over an image).
+  It is blacked out on creation and its editor box is titled **"Drawn Region"**;
+  drawn regions can be moved and resized via their handles.
+- Click an active redaction again (row or overlay) to **deselect** it, or click
+  **empty space** on the page to dismiss its editor box. Deselecting never deletes.
+- **Delete a page:** hover a thumbnail and click its trash icon. Undo restores it.
+
+### 5. Export
+
+- **Download Current** — exports the active document with highlights drawn and
+  blacked-out content **truly redacted** (redacted pages are flattened to images
+  so covered text cannot be recovered). Deleted pages are removed.
+- **Download All** — exports every edited document into a single ZIP (filenames
+  de-duplicated).
+
+## Function Reference
+
+Framework-free logic lives in `src/lib`. Each function is pure/async and unit-
+testable in isolation. UI components consume these; see the call sites noted.
+
+### PDF loading & text — `pdfLoader.ts`, `pdfText.ts`
+
+- **`loadPdfDocument(source: File | ArrayBuffer): Promise<PDFDocumentProxy>`**
+  Loads a PDF into pdf.js entirely in the browser. Accepts a `File` or raw
+  `ArrayBuffer`. Used by `App` on upload and by exports for rasterization.
+
+- **`extractPageTextData(pdfDocument, pageNumber)`**
+  Returns `{ text, textItems, viewport, styles }` for one page: the normalized
+  page text, the raw pdf.js text items (with transforms), the scale-1 viewport,
+  and font styles. The basis for both detection and highlight positioning.
+
+- **`findTextMatchBounds(textItems, match, viewport, styles?)`**
+  Maps a text match (start/end offsets) to bounding boxes. Returns
+  `{ bbox, pdfBoxes }` — a CSS-space union box and per-fragment PDF-space boxes.
+  Uses canvas `measureText` with the real font for sub-word accuracy.
+
+- **`findTextMatchBbox(...)`** — convenience wrapper returning just `bbox`.
+
+### Entity detection — `datePatterns.ts`, `namePatterns.ts`, `extractEntities.ts`
+
+- **`findDateMatches(text): TextMatch[]`**
+  Regex-based date detection: `DD/MM/YYYY`, `DD-MM-YYYY`, `DD-MMM-YYYY`,
+  `Month DD, YYYY`, `DD Month YYYY`, and ISO `YYYY-MM-DD`. De-duplicated and
+  sorted by position.
+
+- **`findNameMatches(text, blockedRanges?): TextMatch[]`**
+  Heuristic person-name detection: Title-Case sequences (2–3 words, optional
+  honorific), with blocklists for headings/labels/all-caps and overlap removal.
+  `blockedRanges` (e.g. detected dates) are excluded.
+
+- **`extractEntitiesFromPdf(pdfDocument): Promise<DetectedEntity[]>`**
+  Runs date + name detection across every page and produces normalized
+  `DetectedEntity` records (id, type, text, page, offsets, bbox, pdfBoxes).
+  Yields to the browser periodically so large PDFs stay responsive.
+
+### Search — `searchPdf.ts`
+
+- **`searchPdfText(pdfDocument, query): Promise<SearchMatch[]>`**
+  Case-insensitive full-document substring search; returns every match with its
+  page and bbox so the viewer can highlight and jump to it. Powers **Find all**.
+
+### Highlight measurement — `measurePdfHighlightBoxes.ts`
+
+- **`measurePdfHighlightBoxes(pdfDocument, entities): Promise<Map<id, TextBounds[]>>`**
+  Re-measures entity boxes against an offscreen pdf.js text layer for
+  export-accurate PDF coordinates (more precise than the stored approximation).
+
+- **`measureManualRedactionPdfBoxes(pdfDocument, redactions): Promise<Map<id, TextBounds[]>>`**
+  Same, for manual redactions/regions.
+
+### Export — `exportHighlightedPdf.ts`, `rasterizeRedactedPages.ts`, `exportDocument.ts`, `exportAllAsZip.ts`
+
+- **`exportHighlightedPdf(originalBytes, selected, …, deletedPages, pdfjsDoc)`**
+  Builds the output PDF: draws translucent highlights with pdf-lib, collects
+  blacked-out boxes per page, removes deleted pages, and routes redacted pages to
+  rasterization. **Fails closed** (throws) if a redaction is requested but no
+  pdf.js document is available, rather than emit a file that only *looks* redacted.
+
+- **`rasterizeRedactedPages(pdfDoc, pdfjsDoc, paintBoxesByPage)`**
+  True redaction: renders each redacted page to a canvas, bakes the black boxes
+  (and any highlights) into it, and replaces the page with that flattened image —
+  so the underlying text is physically gone, not just covered.
+
+- **`getHighlightedFileName(fileName)`** — derives the `*_highlighted.pdf` output name.
+
+- **`exportDocumentBytes(entry): Promise<Uint8Array>`** — full single-document
+  export pipeline (derive selections → measure → `exportHighlightedPdf`).
+
+- **`documentHasDownloadableHighlights(entry): boolean`** — whether a document has
+  anything to export (gates the download buttons).
+
+- **`exportAllAsZip(documents): Promise<Blob | null>`** — exports all exportable
+  documents into one ZIP with de-duplicated filenames; `null` if nothing to export.
+
+### State & misc — `documentsReducer.ts`, `useTheme.ts`, `pdfErrors.ts`
+
+- **`documentsReducer(state, action)` / `initialDocumentsState`**
+  Manages the multi-document queue: `add`, `setActive`, `remove`, `updateEdit`,
+  `reset`. Removing the active document focuses a neighbour.
+
+- **`useTheme()` / `getInitialTheme()`**
+  Light/dark theme hook; persists the choice to `localStorage` and honours the OS
+  preference on first load. Returns `{ theme, toggleTheme }`.
+
+- **`isPdfCancellationError(error): boolean`**
+  Recognizes pdf.js render-cancellation errors so the UI can ignore them (cancels
+  happen routinely as pages scroll in/out of view).
+
 ## Problem Decomposition
 
 ### 1. Load PDFs in the Browser
