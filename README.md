@@ -111,8 +111,10 @@ how these pieces map onto the problems they solve.
 - **Black out a detected entity:** click its highlight in the viewer to toggle a
   solid black box (click again to undo).
 - **Black Out All (toolbar):** blacks out every detected entity and manual
-  redaction in one click. A single undo reverts the whole action (it only clears
-  what it newly blacked out); the button disables once nothing remains.
+  redaction in one click. It is a toggle — once everything is blacked out the
+  button reads **"Clear Black-Outs"** and clicking it removes the black-out from
+  all of them. A single undo reverts the whole action either way (it only
+  changes the items that action touched).
 - **Manual Redaction (toolbar):** enable, then select text in the page to mark it.
   A small editor box appears titled **"Text Redaction"** with a category selector
   and **Delete**.
