@@ -966,19 +966,26 @@ function Layout({
     (entityId: string) => {
       const entity = visibleEntities.find((item) => item.id === entityId);
 
-      setActiveEntityId(entityId);
+      // Toggle: clicking a selected entity deselects it; clicking an unselected
+      // one selects it. Compute from current state before the setter (the
+      // updater callback is not synchronous) so the scroll only fires on select.
+      const willBeSelected = !selectedEntityIds.has(entityId);
+
+      setActiveEntityId(willBeSelected ? entityId : null);
       setActiveManualRedactionId(null);
       setSelectedEntityIds((current) => {
-        if (current.has(entityId)) {
-          return current;
+        const nextSelectedEntityIds = new Set(current);
+
+        if (nextSelectedEntityIds.has(entityId)) {
+          nextSelectedEntityIds.delete(entityId);
+        } else {
+          nextSelectedEntityIds.add(entityId);
         }
 
-        const nextSelectedEntityIds = new Set(current);
-        nextSelectedEntityIds.add(entityId);
         return nextSelectedEntityIds;
       });
 
-      if (entity) {
+      if (entity && willBeSelected) {
         scrollToEntity(
           entity.pageNumber,
           entity.bbox,
@@ -986,7 +993,7 @@ function Layout({
         );
       }
     },
-    [scrollToEntity, visibleEntities],
+    [scrollToEntity, selectedEntityIds, visibleEntities],
   );
 
   const handleEntityBlackout = useCallback(
