@@ -48,8 +48,10 @@ export type HistoryAction =
     }
   | {
       kind: 'blackout-all';
-      // Entities/redactions newly blacked out by this action (so undo can clear
-      // exactly those, leaving anything already blacked out untouched).
+      // 'add' blacks the IDs out, 'remove' clears them. Only the IDs this action
+      // actually changed are stored, so undo/redo affect exactly those and leave
+      // anything else untouched.
+      mode: 'add' | 'remove';
       entityIds: string[];
       manualRedactionIds: string[];
     }

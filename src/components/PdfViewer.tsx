@@ -56,6 +56,7 @@ type PdfViewerProps = {
   onUndo: () => void;
   onRedo: () => void;
   canBlackoutAll: boolean;
+  allBlackedOut: boolean;
   onBlackoutAll: () => void;
   onDownloadHighlightedPdf: () => void;
   onManualRedactionCreate: (
@@ -106,6 +107,7 @@ function PdfViewer({
   onUndo,
   onRedo,
   canBlackoutAll,
+  allBlackedOut,
   onBlackoutAll,
   onDownloadHighlightedPdf,
   onManualRedactionCreate,
@@ -344,11 +346,17 @@ function PdfViewer({
             className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             type="button"
             disabled={!canBlackoutAll}
-            title="Black out every detected entity and manual redaction"
+            title={
+              allBlackedOut
+                ? 'Remove black-out from every entity and manual redaction'
+                : 'Black out every detected entity and manual redaction'
+            }
             onClick={onBlackoutAll}
           >
-            <Square className="w-4 h-4 fill-current" />
-            Black Out All
+            <Square
+              className={`w-4 h-4 ${allBlackedOut ? '' : 'fill-current'}`}
+            />
+            {allBlackedOut ? 'Clear Black-Outs' : 'Black Out All'}
           </button>
           <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500" aria-label="Jump to page">
             <span>Page</span>

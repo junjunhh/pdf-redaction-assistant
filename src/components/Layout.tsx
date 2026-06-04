@@ -672,37 +672,39 @@ function Layout({
     [],
   );
 
-  const restoreBlackoutAll = useCallback(
-    (action: Extract<HistoryAction, { kind: 'blackout-all' }>) => {
-      // Undo: clear only the IDs this action newly blacked out.
-      setBlackedOutEntityIds((current) => {
-        const next = new Set(current);
-        action.entityIds.forEach((id) => next.delete(id));
-        return next;
-      });
-      setBlackedOutManualRedactionIds((current) => {
-        const next = new Set(current);
-        action.manualRedactionIds.forEach((id) => next.delete(id));
-        return next;
-      });
+  // Apply/clear a blackout-all action's IDs in a given direction. `add` blacks
+  // them out; `remove` clears them. Only the action's recorded IDs are touched.
+  const setBlackoutAll = useCallback(
+    (
+      action: Extract<HistoryAction, { kind: 'blackout-all' }>,
+      shouldBlackOut: boolean,
+    ) => {
+      const mutate = (set: Set<string>, ids: string[]) => {
+        ids.forEach((id) => (shouldBlackOut ? set.add(id) : set.delete(id)));
+        return set;
+      };
+
+      setBlackedOutEntityIds((current) =>
+        mutate(new Set(current), action.entityIds),
+      );
+      setBlackedOutManualRedactionIds((current) =>
+        mutate(new Set(current), action.manualRedactionIds),
+      );
     },
     [],
   );
 
+  // Undo: invert the action's direction. Redo: re-apply it.
+  const restoreBlackoutAll = useCallback(
+    (action: Extract<HistoryAction, { kind: 'blackout-all' }>) =>
+      setBlackoutAll(action, action.mode === 'remove'),
+    [setBlackoutAll],
+  );
+
   const applyBlackoutAll = useCallback(
-    (action: Extract<HistoryAction, { kind: 'blackout-all' }>) => {
-      setBlackedOutEntityIds((current) => {
-        const next = new Set(current);
-        action.entityIds.forEach((id) => next.add(id));
-        return next;
-      });
-      setBlackedOutManualRedactionIds((current) => {
-        const next = new Set(current);
-        action.manualRedactionIds.forEach((id) => next.add(id));
-        return next;
-      });
-    },
-    [],
+    (action: Extract<HistoryAction, { kind: 'blackout-all' }>) =>
+      setBlackoutAll(action, action.mode === 'add'),
+    [setBlackoutAll],
   );
 
   const restoreManualRedactionCategoryChange = useCallback(
@@ -1065,45 +1067,47 @@ function Layout({
   );
 
   const handleBlackoutAll = useCallback(() => {
-    // Black out every visible entity and manual redaction that isn't already
-    // blacked out. Record only the newly-added IDs so a single undo reverts
-    // exactly this action without touching pre-existing black-outs.
-    const newEntityIds = visibleEntities
+    // Toggle: if every visible entity and manual redaction is already blacked
+    // out, this clears them all; otherwise it blacks out the ones that aren't.
+    // Either way, record only the IDs actually changed so a single undo reverts
+    // exactly this action.
+    const notBlackedEntityIds = visibleEntities
       .filter((entity) => !blackedOutEntityIds.has(entity.id))
       .map((entity) => entity.id);
-    const newManualRedactionIds = visibleManualRedactions
+    const notBlackedManualRedactionIds = visibleManualRedactions
       .filter((redaction) => !blackedOutManualRedactionIds.has(redaction.id))
       .map((redaction) => redaction.id);
 
-    if (newEntityIds.length === 0 && newManualRedactionIds.length === 0) {
+    const allBlackedOut =
+      notBlackedEntityIds.length === 0 &&
+      notBlackedManualRedactionIds.length === 0;
+
+    const mode: 'add' | 'remove' = allBlackedOut ? 'remove' : 'add';
+    const entityIds = allBlackedOut
+      ? visibleEntities.map((entity) => entity.id)
+      : notBlackedEntityIds;
+    const manualRedactionIds = allBlackedOut
+      ? visibleManualRedactions.map((redaction) => redaction.id)
+      : notBlackedManualRedactionIds;
+
+    if (entityIds.length === 0 && manualRedactionIds.length === 0) {
       return;
     }
 
-    recordDeletionAction({
-      kind: 'blackout-all',
-      entityIds: newEntityIds,
-      manualRedactionIds: newManualRedactionIds,
-    });
+    const action = {
+      kind: 'blackout-all' as const,
+      mode,
+      entityIds,
+      manualRedactionIds,
+    };
 
-    if (newEntityIds.length > 0) {
-      setBlackedOutEntityIds((current) => {
-        const next = new Set(current);
-        newEntityIds.forEach((id) => next.add(id));
-        return next;
-      });
-    }
-
-    if (newManualRedactionIds.length > 0) {
-      setBlackedOutManualRedactionIds((current) => {
-        const next = new Set(current);
-        newManualRedactionIds.forEach((id) => next.add(id));
-        return next;
-      });
-    }
+    recordDeletionAction(action);
+    setBlackoutAll(action, mode === 'add');
   }, [
     blackedOutEntityIds,
     blackedOutManualRedactionIds,
     recordDeletionAction,
+    setBlackoutAll,
     visibleEntities,
     visibleManualRedactions,
   ]);
@@ -1521,11 +1525,15 @@ function Layout({
     blackedOutEntities.length > 0 ||
     selectedManualRedactions.length > 0 ||
     hasDeletedRemainingPages;
-  // Enable "Black Out All" only while something visible is not yet blacked out.
+  // "Black Out All" is a toggle: enabled whenever there is anything to act on.
   const canBlackoutAll =
-    visibleEntities.some((entity) => !blackedOutEntityIds.has(entity.id)) ||
-    visibleManualRedactions.some(
-      (redaction) => !blackedOutManualRedactionIds.has(redaction.id),
+    visibleEntities.length > 0 || visibleManualRedactions.length > 0;
+  // When everything visible is already blacked out, the button clears them all.
+  const allBlackedOut =
+    canBlackoutAll &&
+    visibleEntities.every((entity) => blackedOutEntityIds.has(entity.id)) &&
+    visibleManualRedactions.every((redaction) =>
+      blackedOutManualRedactionIds.has(redaction.id),
     );
 
   const handleHighlightedPdfDownload = useCallback(async () => {
@@ -2089,6 +2097,7 @@ function Layout({
             onUndo={handleUndo}
             onRedo={handleRedo}
             canBlackoutAll={canBlackoutAll}
+            allBlackedOut={allBlackedOut}
             onBlackoutAll={handleBlackoutAll}
             canDownloadHighlightedPdf={
               Boolean(originalPdfBytes) && hasDownloadableHighlights
